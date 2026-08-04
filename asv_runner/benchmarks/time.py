@@ -162,13 +162,21 @@ class TimeBenchmark(Benchmark):
         max_repeat = int(max_repeat)
         max_time = float(max_time)
 
+        number = self.number
+        # timeit(number=N) runs setup once then the stmt N times without
+        # re-setup. Benchmarks with a setup() that restores state need
+        # number=1 so each sample is one call (setup between samples via
+        # redo_setup). See asv#966.
+        if self._setups and number != 1:
+            number = 1
+
         samples, number = self.benchmark_timing(
             timer,
             min_repeat,
             max_repeat,
             max_time=max_time,
             warmup_time=warmup_time,
-            number=self.number,
+            number=number,
             min_run_count=self.min_run_count,
         )
 
@@ -205,7 +213,9 @@ class TimeBenchmark(Benchmark):
         : The time spent warming up the benchmark.
 
         **number** (`int`)
-        : The number of executions of the setup statement.
+        : The number of executions of the timed statement per sample
+        (``timeit``'s ``number``). Setup runs once per sample, not once
+        per inner execution.
 
         **min_run_count** (`int`)
         : The minimum number of runs required for the benchmark.
