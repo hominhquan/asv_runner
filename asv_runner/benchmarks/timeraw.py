@@ -137,6 +137,12 @@ class TimerawBenchmark(TimeBenchmark):
 
     name_regex = re.compile("^(Timeraw[A-Z_].+)|(timeraw_.+)$")
 
+    # Each sample is a fresh subprocess, so in-process setup hooks never
+    # leak state between samples; the number applied inside the child to
+    # the returned (stmt, setup) sources is out of scope for the
+    # setup-hook check in TimeBenchmark.run.
+    _setup_pins_auto_number = False
+
     def __init__(self, name, func, attr_sources):
         TimeBenchmark.__init__(self, name, func, attr_sources)
         explicit_version = _get_first_attr(attr_sources, "version", None)

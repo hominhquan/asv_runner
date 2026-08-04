@@ -42,6 +42,12 @@ class TimeBenchmark(Benchmark):
 
     name_regex = re.compile("^(Time[A-Z_].+)|(time_.+)$")
 
+    # Auto-calibrated number resolves to 1 when setup hooks are present,
+    # so every timed call sees freshly set-up state (asv#966). Subclasses
+    # whose samples do not share in-process state (timeraw: one subprocess
+    # per sample) opt out.
+    _setup_pins_auto_number = True
+
     def __init__(self, name, func, attr_sources):
         """
         Initialize a new instance of `TimeBenchmark`.
@@ -163,11 +169,14 @@ class TimeBenchmark(Benchmark):
         max_time = float(max_time)
 
         number = self.number
-        # timeit(number=N) runs setup once then the stmt N times without
-        # re-setup. Benchmarks with a setup() that restores state need
-        # number=1 so each sample is one call (setup between samples via
-        # redo_setup). See asv#966.
-        if self._setups and number != 1:
+        # timeit(number=N) runs setup once, then the stmt N times: setup
+        # (via redo_setup) is per sample, never between the inner calls.
+        # With setup hooks present, auto-calibrated N>1 would time calls
+        # against state mutated by earlier calls in the same sample, so
+        # auto resolves to number=1 (asv#966). An explicitly set number
+        # always wins: authors who accept shared state within a sample
+        # (or build inputs in setup_cache) keep timeit batching.
+        if number == 0 and self._setups and self._setup_pins_auto_number:
             number = 1
 
         samples, number = self.benchmark_timing(
