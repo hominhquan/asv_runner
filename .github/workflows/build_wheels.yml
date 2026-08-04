@@ -11,7 +11,10 @@ jobs:
       fail-fast: false
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          # pdm-backend derives the version from git describe
+          fetch-depth: 0
 
       - uses: actions/setup-python@v4
         with:
@@ -20,13 +23,16 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
+          name: wheels
           path: ./wheelhouse/*.whl
 
   build_sdist:
     name: Build source distribution
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Build sdist
         shell: bash -l {0}
@@ -34,6 +40,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
+          name: sdist
           path: dist/*.tar.gz
 
   upload_pypi:
@@ -51,8 +58,10 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          # unpacks default artifact into dist/
-          # if `name: artifact` is omitted, the action will create extra parent dir
-          name: artifact
+          # Collect wheels and sdist into a flat dist/. Same-named v4
+          # artifacts from parallel jobs are distinct objects, and a
+          # name-filtered download takes only one of them: the v0.2.5
+          # release published the wheel and dropped the built sdist.
+          merge-multiple: true
           path: dist
       - uses: pypa/gh-action-pypi-publish@release/v1
