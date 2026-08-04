@@ -285,7 +285,12 @@ class TimeBenchmark(Benchmark):
         elif warmup_time > 0:
             # Warmup
             while True:
-                self._redo_setup_next = False
+                if not self._setups:
+                    # Skipping redo_setup keeps warmup cheap; with setup
+                    # hooks present, warmup must observe the same
+                    # freshly-set-up state as the measurement loop below
+                    # (asv#966).
+                    self._redo_setup_next = False
                 timing = timer.timeit(number)
                 run_count += number
                 if wall_timer() >= start_time + warmup_time:
