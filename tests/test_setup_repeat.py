@@ -1,5 +1,6 @@
-# asv#966: setup must restore state before each timed sample when number>1
-# would otherwise run the stmt multiple times under one setup.
+# asv#966: with setup hooks present, every timed call must observe
+# freshly set-up state. Auto-calibrated number resolves to 1; warmup
+# re-runs setup between calls; an explicitly set number is honored.
 
 import os
 import sys
@@ -12,40 +13,75 @@ if _ROOT not in sys.path:
 from asv_runner.benchmarks.time import TimeBenchmark  # noqa: E402
 
 
-class TestSetupBeforeEachSample(unittest.TestCase):
-    def test_setup_restores_state_across_samples(self):
-        """Reproducer from asv#966: mutating setup must not fail timing."""
+def _make_benchmark(suite, method_name):
+    method = getattr(suite, method_name)
+    b = TimeBenchmark(f"Suite.{method_name}", method, [method, suite])
+    b.do_setup()
+    return b
+
+
+class TestSetupBeforeEachTimedCall(unittest.TestCase):
+    def test_auto_number_resolves_to_one_with_mutating_setup(self):
+        """Reproducer from asv#966 under default (CPython) warmup."""
 
         class Suite:
-            number = 10  # would re-mutate without re-setup if number>1
             repeat = 5
-            warmup_time = 0
             min_run_count = 1
             rounds = 1
-            processes = 1
 
             def setup(self):
                 self.x = []
 
-            def time_1(self):
+            def time_mutate(self):
                 assert len(self.x) == 0
                 self.x.append(0)
 
-            def time_2(self):
-                assert len(self.x) == 0
-
-        suite = Suite()
-        b = TimeBenchmark(
-            "Suite.time_1",
-            suite.time_1,
-            [suite.time_1, suite],
-        )
-        b.do_setup()
-        result = b.run()
+        result = _make_benchmark(Suite(), "time_mutate").run()
         self.assertEqual(result["number"], 1)
         self.assertGreaterEqual(len(result["samples"]), 1)
 
-    def test_auto_number_allowed_without_setup(self):
+    def test_explicit_number_one_survives_warmup(self):
+        """Warmup calls redo setup too: number=1 keeps its documented
+        semantics (asv#966, the explicit-number report)."""
+
+        class Suite:
+            number = 1
+            repeat = 3
+            min_run_count = 1
+            rounds = 1
+
+            def setup(self):
+                self.x = []
+
+            def time_mutate(self):
+                assert len(self.x) == 0
+                self.x.append(0)
+
+        result = _make_benchmark(Suite(), "time_mutate").run()
+        self.assertEqual(result["number"], 1)
+        self.assertGreaterEqual(len(result["samples"]), 1)
+
+    def test_explicit_number_wins_over_setup(self):
+        """A benign setup keeps timeit batching when number is explicit."""
+
+        class Suite:
+            number = 7
+            repeat = 2
+            warmup_time = 0
+            min_run_count = 1
+            rounds = 1
+
+            def setup(self):
+                self.data = list(range(8))
+
+            def time_read(self):
+                return sum(self.data)
+
+        result = _make_benchmark(Suite(), "time_read").run()
+        self.assertEqual(result["number"], 7)
+        self.assertGreaterEqual(len(result["samples"]), 1)
+
+    def test_auto_number_calibrates_without_setup(self):
         def time_fast():
             return 1 + 1
 
@@ -60,8 +96,7 @@ class TestSetupBeforeEachSample(unittest.TestCase):
         b = TimeBenchmark("m.time_fast", time_fast, [time_fast])
         b.do_setup()
         result = b.run()
-        # Without setup, auto number may be > 1 for a tiny function.
-        self.assertGreaterEqual(result["number"], 1)
+        self.assertGreater(result["number"], 1)
         self.assertGreaterEqual(len(result["samples"]), 1)
 
 
