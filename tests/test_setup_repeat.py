@@ -1,6 +1,7 @@
 # asv#966: with setup hooks present, every timed call must observe
 # freshly set-up state. Auto-calibrated number resolves to 1; warmup
-# re-runs setup between calls; an explicitly set number is honored.
+# re-runs setup between calls; an explicitly set number is honored and
+# batches with setup interleaved between individually timed calls.
 
 import os
 import sys
@@ -80,6 +81,29 @@ class TestSetupBeforeEachTimedCall(unittest.TestCase):
         result = _make_benchmark(Suite(), "time_read").run()
         self.assertEqual(result["number"], 7)
         self.assertGreaterEqual(len(result["samples"]), 1)
+
+    def test_explicit_number_batches_with_fresh_setup(self):
+        """Explicit number>1 with a mutating setup: setup re-runs before
+        every call and the batch still reports the requested number."""
+
+        class Suite:
+            number = 10
+            repeat = 3
+            warmup_time = 0.05
+            min_run_count = 1
+            rounds = 1
+
+            def setup(self):
+                self.x = []
+
+            def time_mutate(self):
+                assert len(self.x) == 0
+                self.x.append(0)
+
+        result = _make_benchmark(Suite(), "time_mutate").run()
+        self.assertEqual(result["number"], 10)
+        self.assertGreaterEqual(len(result["samples"]), 1)
+        self.assertTrue(all(s >= 0 for s in result["samples"]))
 
     def test_auto_number_calibrates_without_setup(self):
         def time_fast():

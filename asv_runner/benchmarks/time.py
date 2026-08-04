@@ -1,3 +1,4 @@
+import gc
 import re
 import sys
 import timeit
@@ -5,6 +6,39 @@ import timeit
 from ._base import Benchmark, _get_first_attr
 
 wall_timer = timeit.default_timer
+
+
+class _SetupInterleavedTimer:
+    """
+    ``timeit.Timer``-compatible batching for explicit ``number > 1`` with
+    setup hooks (asv#966): setup re-runs before every call via
+    ``redo_setup`` and only the calls accumulate into the sample, at the
+    cost of two clock reads per call. Garbage collection is disabled for
+    the duration of a sample, matching ``timeit.Timer.timeit``.
+    """
+
+    def __init__(self, func, redo_setup, timer):
+        self._func = func
+        self._redo_setup = redo_setup
+        self._timer = timer
+
+    def timeit(self, number):
+        func = self._func
+        redo_setup = self._redo_setup
+        timer = self._timer
+        total = 0.0
+        gcold = gc.isenabled()
+        gc.disable()
+        try:
+            for _ in range(number):
+                redo_setup()
+                start = timer()
+                func()
+                total += timer() - start
+        finally:
+            if gcold:
+                gc.enable()
+        return total
 
 
 class TimeBenchmark(Benchmark):
@@ -42,11 +76,12 @@ class TimeBenchmark(Benchmark):
 
     name_regex = re.compile("^(Time[A-Z_].+)|(time_.+)$")
 
-    # Auto-calibrated number resolves to 1 when setup hooks are present,
-    # so every timed call sees freshly set-up state (asv#966). Subclasses
-    # whose samples do not share in-process state (timeraw: one subprocess
-    # per sample) opt out.
-    _setup_pins_auto_number = True
+    # With setup hooks present, every timed call observes freshly
+    # set-up state (asv#966): auto-calibrated number resolves to 1, and
+    # an explicit number > 1 batches through _SetupInterleavedTimer.
+    # Subclasses whose samples do not share in-process state (timeraw:
+    # one subprocess per sample) opt out.
+    _setup_isolates_timed_calls = True
 
     def __init__(self, name, func, attr_sources):
         """
@@ -88,17 +123,25 @@ class TimeBenchmark(Benchmark):
         self._load_vars()
         return result
 
-    def _get_timer(self, *param):
-        """Get a `timeit.Timer` for the current benchmark."""
+    def _param_bound_func(self, *param):
         if param:
 
             def func():
                 self.func(*param)
 
-        else:
-            func = self.func
+            return func
+        return self.func
+
+    def _get_timer(self, *param):
+        """Get a `timeit.Timer` for the current benchmark."""
+        func = self._param_bound_func(*param)
         timer = timeit.Timer(stmt=func, setup=self.redo_setup, timer=self.timer)
         return timer
+
+    def _get_interleaved_timer(self, *param):
+        """Get a per-call-timed batch timer that re-runs setup between calls."""
+        func = self._param_bound_func(*param)
+        return _SetupInterleavedTimer(func, self.redo_setup, self.timer)
 
     def run(self, *param):
         """
@@ -143,7 +186,6 @@ class TimeBenchmark(Benchmark):
                 # Transient effects exist also on CPython, e.g. from
                 # OS scheduling
                 warmup_time = 0.1
-        timer = self._get_timer(*param)
 
         try:
             min_repeat, max_repeat, max_time = self.repeat
@@ -171,13 +213,19 @@ class TimeBenchmark(Benchmark):
         number = self.number
         # timeit(number=N) runs setup once, then the stmt N times: setup
         # (via redo_setup) is per sample, never between the inner calls.
-        # With setup hooks present, auto-calibrated N>1 would time calls
-        # against state mutated by earlier calls in the same sample, so
-        # auto resolves to number=1 (asv#966). An explicitly set number
-        # always wins: authors who accept shared state within a sample
-        # (or build inputs in setup_cache) keep timeit batching.
-        if number == 0 and self._setups and self._setup_pins_auto_number:
+        # With setup hooks present every timed call must observe freshly
+        # set-up state (asv#966): auto number resolves to 1 under plain
+        # timeit, and an explicit number > 1 batches through
+        # _SetupInterleavedTimer (setup between calls, calls timed
+        # individually). Without setup hooks, plain timeit batching is
+        # unchanged.
+        isolate = self._setups and self._setup_isolates_timed_calls
+        if isolate and number == 0:
             number = 1
+        if isolate and number > 1:
+            timer = self._get_interleaved_timer(*param)
+        else:
+            timer = self._get_timer(*param)
 
         samples, number = self.benchmark_timing(
             timer,
@@ -223,8 +271,9 @@ class TimeBenchmark(Benchmark):
 
         **number** (`int`)
         : The number of executions of the timed statement per sample
-        (``timeit``'s ``number``). Setup runs once per sample, not once
-        per inner execution.
+        (``timeit``'s ``number``). Without setup hooks, setup runs once
+        per sample; with setup hooks the timer re-runs setup before
+        every execution and only the executions are timed.
 
         **min_run_count** (`int`)
         : The minimum number of runs required for the benchmark.

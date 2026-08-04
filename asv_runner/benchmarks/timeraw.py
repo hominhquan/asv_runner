@@ -141,7 +141,7 @@ class TimerawBenchmark(TimeBenchmark):
     # leak state between samples; the number applied inside the child to
     # the returned (stmt, setup) sources is out of scope for the
     # setup-hook check in TimeBenchmark.run.
-    _setup_pins_auto_number = False
+    _setup_isolates_timed_calls = False
 
     def __init__(self, name, func, attr_sources):
         TimeBenchmark.__init__(self, name, func, attr_sources)
