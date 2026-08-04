@@ -8,6 +8,33 @@ This project uses [*towncrier*](https://towncrier.readthedocs.io/) and the chang
 
 <!-- towncrier release notes start -->
 
+## [0.3.0](https://github.com/airspeed-velocity/asv_runner/tree/0.3.0) - 04-08-2026
+
+### Bug Fixes
+
+- `asv_runner.__version__` is now defined for source-tree and editable imports,
+  resolving the installed distribution version with a `0.0.0.dev0` fallback;
+  built artifacts keep the static build-time string.
+  ([#53](https://github.com/airspeed-velocity/asv_runner/issues/53))
+- Releases publish the sdist alongside wheels again: the wheel and sdist jobs
+  uploaded artifacts under the same default name and the publish step picked up
+  only the wheel, which is why 0.2.5 reached PyPI wheel-only and downstream
+  rebuilds from GitHub tarballs shipped wrong version metadata.
+  ([#53](https://github.com/airspeed-velocity/asv_runner/issues/53))
+- Timing benchmarks with `setup` hooks now observe freshly set-up state on
+  every timed call
+  ([asv#966](https://github.com/airspeed-velocity/asv/issues/966)): warmup
+  re-runs `setup` between calls, auto-calibrated `number` resolves to 1, and an
+  explicitly set `number > 1` batches with `setup` interleaved between
+  individually timed calls (only the calls are timed, at the cost of two clock
+  reads per call). Benchmarks without `setup` hooks are unchanged,
+  `setup_cache` remains the batching path for input-building setups, and
+  `timeraw_*` benchmarks (one fresh subprocess per sample) are exempt. Timings
+  for fast benchmarks that define `setup` will shift relative to earlier
+  releases because samples are no longer amortized over auto-calibrated
+  batches. ([#53](https://github.com/airspeed-velocity/asv_runner/issues/53))
+
+
 ## [0.2.4](https://github.com/airspeed-velocity/asv_runner/tree/0.2.4) - 27-06-2026
 
 ### Bug Fixes
