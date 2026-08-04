@@ -1,0 +1,1 @@
+Timing benchmarks that combine `setup` hooks with an explicitly set `number > 1` emit a stderr note that setup re-runs between the individually timed calls, so the changed timing methodology is visible in benchmark output.
