@@ -8,6 +8,16 @@ This project uses [*towncrier*](https://towncrier.readthedocs.io/) and the chang
 
 <!-- towncrier release notes start -->
 
+## [0.3.1](https://github.com/airspeed-velocity/asv_runner/tree/0.3.1) - 15-08-2026
+
+### Bug Fixes
+
+- Class-level ``setup(self)`` no longer runs inside ``do_setup_cache``.
+  Bound methods are not treated as parameter-free module hooks, so
+  ``setup_cache`` runs first again
+  ([#52](https://github.com/airspeed-velocity/asv_runner/issues/52)).
+
+
 ## [0.3.0](https://github.com/airspeed-velocity/asv_runner/tree/0.3.0) - 04-08-2026
 
 ### Bug Fixes
